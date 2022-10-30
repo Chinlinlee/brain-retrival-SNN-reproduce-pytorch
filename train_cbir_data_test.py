@@ -3,14 +3,17 @@ import csv
 import argparse
 
 import torch
+from sklearn.model_selection import train_test_split
 from torchvision import transforms, datasets
 from torch.utils.data import DataLoader
+from torchvision.datasets import ImageFolder
 
 from tqdm import tqdm
 
-import Siamese
 from dataset import get_fold_from_image_folder, DataFolderPair
 from Siamese import SiameseTrainer
+
+from utils.arg import str2bool
 
 parser = argparse.ArgumentParser()
 
@@ -21,6 +24,7 @@ parser.add_argument('--workers', '-j', default=8, type=int,
                     help='number of data loading workers (default: 8)')
 parser.add_argument("--iteration", "-i", type=int, default=600, help="The iterations of training")
 parser.add_argument("--stage1", type=str, required=True)
+parser.add_argument("--is-fold", type=str2bool, default=True, help="Use five fold cross validation or handout validation")
 
 parser.add_argument("--resume", type=str, help="name of the latest checkpoint (default: None)")
 
@@ -43,16 +47,30 @@ def main():
     ])
 
     my_dataset = DataFolderPair(root=data_dir, transform=train_transforms)
-    five_fold_data = get_fold_from_image_folder(my_dataset, fold_num=5)
-    for i, (train_dataset, test_dataset) in enumerate(tqdm(five_fold_data)):
-        result = fold_train(train_dataset, test_dataset, i)
+    if input_args.is_fold:
+        train_test_dataset = get_fold_from_image_folder(my_dataset, fold_num=5)
+
+        for i, (train_dataset, test_dataset) in enumerate(tqdm(train_test_dataset)):
+            result = fold_train(train_dataset, test_dataset, f"fold{i+1}")
+        pass
+    else:
+        print("Use handout(train/test) validation")
+        train_dataset = DataFolderPair(
+            root=os.path.join(data_dir, "train"),
+            transform=train_transforms
+        )
+        test_dataset = DataFolderPair(
+            root=os.path.join(data_dir, "test"),
+            transform=test_transforms
+        )
+        fold_train(train_dataset, test_dataset, f"handout")
     pass
 
 
 pass
 
 
-def fold_train(train_dataset, test_dataset, fold):
+def fold_train(train_dataset, test_dataset, post_name):
     dataloaders = {
         "train": DataLoader(train_dataset,
                             batch_size=input_args.batch_size,
@@ -82,7 +100,7 @@ def fold_train(train_dataset, test_dataset, fold):
 
     trained_model_ft, acc_loss_history, iteration = trainer.train(iteration=input_args.iteration,
                                                                   previous_iteration=checkpoint_iteration,
-                                                                  save_model_name=f"GoogleNet-CBIR-fold{fold + 1}")
+                                                                  save_model_name=f"GoogleNet-CBIR-{post_name}")
     return trained_model_ft, acc_loss_history, iteration
 
 

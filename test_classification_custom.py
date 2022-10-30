@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import torch
 from torch import nn
@@ -8,11 +9,14 @@ from torchvision.datasets import ImageFolder
 
 from dataset import get_fold_from_image_folder
 
+from utils.arg import str2bool
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--data-path", "-d", type=str, help="The dataset folder", required=True)
 parser.add_argument("--weight", "-w", type=str, help="The pth file of model weight", default="inception-v3-brain.pth")
 parser.add_argument("--fold", type=int, default=1)
+parser.add_argument("--is-fold", type=str2bool, default=True, help="Use fold cross validation or handout validation")
 input_args = parser.parse_args()
 
 
@@ -83,13 +87,27 @@ if __name__ == '__main__':
     ])
 
     input_dataset = ImageFolder(data_dir, test_transforms)
-    fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
 
-    if isinstance(fold_train_test_dataset[0][0].dataset, torch.utils.data.Subset):
-        class_names = fold_train_test_dataset[0][0].dataset.dataset.classes
-        class_num = len(class_names)
+    if input_args.is_fold:
+        fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
+
+        if isinstance(fold_train_test_dataset[0][0].dataset, torch.utils.data.Subset):
+            class_names = fold_train_test_dataset[0][0].dataset.dataset.classes
+            class_num = len(class_names)
+        else:
+            class_names = fold_train_test_dataset[0][0].dataset.classes
+            class_num = len(class_names)
+        pass
+        print(f"test for fold {input_args.fold}")
+        train_test_dataset = fold_train_test_dataset[input_args.fold-1]
+        test_dataset = train_test_dataset[1]
     else:
-        class_names = fold_train_test_dataset[0][0].dataset.classes
+        print("test for handout validation")
+        test_dataset = ImageFolder(
+            os.path.join(data_dir, "test"),
+            test_transforms
+        )
+        class_names = test_dataset.classes
         class_num = len(class_names)
     pass
 
@@ -106,9 +124,6 @@ if __name__ == '__main__':
         model_googlenet.load_state_dict(weight)
     pass
 
-    print(f"test for fold {input_args.fold}")
-    train_test_dataset = fold_train_test_dataset[input_args.fold-1]
-    test_dataset = train_test_dataset[1]
     test_dataloader = DataLoader(test_dataset,
                                  batch_size=1,
                                  shuffle=False,

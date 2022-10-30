@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import random
 import sys
 
@@ -10,9 +11,10 @@ from torchvision import transforms
 import numpy as np
 from torchvision.datasets import ImageFolder
 
-from dataset import get_five_fold_dataset, get_fold_from_image_folder
+from dataset import get_fold_from_image_folder
 from Siamese import SiameseNet
 from utils.feature_vetors import extract_snn_vectors
+from utils.arg import str2bool
 
 parser = argparse.ArgumentParser()
 
@@ -20,7 +22,8 @@ parser.add_argument("--data-path", "-d", type=str, help="The dataset folder", re
 parser.add_argument("--stage1", type=str, required=True)
 parser.add_argument("--weight", "-w", type=str, help="The pth file of model weight")
 parser.add_argument("--seed", type=int, default=random.randint(1, 2 ** 32 - 1))
-parser.add_argument("--fold", type=int, required=True, default=1)
+parser.add_argument("--fold", type=int, default=1)
+parser.add_argument("--is-fold", type=str2bool, default=True, help="Use five fold cross validation or 7:3 handout")
 input_args = parser.parse_args()
 
 
@@ -83,6 +86,8 @@ def do_retrieval_eval_specific_label(indices, db_indices, i_q_vectors, i_db_vect
 pass
 
 if __name__ == '__main__':
+    data_dir = input_args.data_path
+
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(input_args.seed)
@@ -103,14 +108,32 @@ if __name__ == '__main__':
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    input_dataset = ImageFolder(input_args.data_path, test_transforms)
-    fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
+    input_dataset = ImageFolder(data_dir, test_transforms)
+    if input_args.is_fold:
+        fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
 
-    if isinstance(fold_train_test_dataset[0][0].dataset, torch.utils.data.Subset):
-        class_names = fold_train_test_dataset[0][0].dataset.dataset.classes
-        class_num = len(class_names)
+        if isinstance(fold_train_test_dataset[0][0].dataset, torch.utils.data.Subset):
+            class_names = fold_train_test_dataset[0][0].dataset.dataset.classes
+            class_num = len(class_names)
+        else:
+            class_names = fold_train_test_dataset[0][0].dataset.classes
+            class_num = len(class_names)
+        pass
+
+        train_test_dataset = fold_train_test_dataset[input_args.fold - 1]
     else:
-        class_names = fold_train_test_dataset[0][0].dataset.classes
+        print("Use handout(train/test) validation")
+        train_dataset = ImageFolder(
+            os.path.join(data_dir, "train"),
+            train_transforms
+        )
+        test_dataset = ImageFolder(
+            os.path.join(data_dir, "test"),
+            test_transforms
+        )
+        train_test_dataset = [train_dataset, test_dataset]
+
+        class_names = train_test_dataset[0].classes
         class_num = len(class_names)
     pass
 
@@ -127,7 +150,6 @@ if __name__ == '__main__':
     overall_map_list = []
     overall_precision_10_list = []
 
-    train_test_dataset = fold_train_test_dataset[input_args.fold - 1]
     test_dataset = train_test_dataset[1]
     test_dataloader = DataLoader(test_dataset,
                                  batch_size=1,

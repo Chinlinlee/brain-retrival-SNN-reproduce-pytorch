@@ -3,14 +3,18 @@ import csv
 import argparse
 
 import torch
+from sklearn.model_selection import train_test_split
 from torchvision import transforms, datasets
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 
 from tqdm import tqdm
 
-from dataset import get_fold_from_image_folder, DataFolderPair
+from dataset import get_fold_from_image_folder
 from GoogLeNet import GoogleNetTrainer
+
+from utils.arg import str2bool
+
 
 parser = argparse.ArgumentParser()
 
@@ -22,8 +26,8 @@ parser.add_argument('--workers', '-j', default=8, type=int,
 parser.add_argument("--epoch", "-e", type=int, default=25, help="The epochs of training")
 
 # Model
-parser.add_argument("--model", "-m", type=str, help="The model architecture", default="inception_v3")
 parser.add_argument("--resume", type=str, help="name of the latest checkpoint (default: None)")
+parser.add_argument("--is-fold", type=str2bool, default=True, help="Use five fold cross validation or 7:3 handout")
 
 input_args = parser.parse_args()
 
@@ -44,17 +48,30 @@ def main():
     ])
 
     input_dataset = ImageFolder(data_dir, train_transforms)
+    if input_args.is_fold:
+        print("Use fold cross validation")
+        fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
 
-    fold_train_test_dataset = get_fold_from_image_folder(input_dataset)
-
-    for i, (train_dataset, test_dataset) in enumerate(tqdm(fold_train_test_dataset)):
-        result = fold_train(train_dataset, test_dataset, i)
-
+        for i, (train_dataset, test_dataset) in enumerate(tqdm(fold_train_test_dataset)):
+            result = fold_train(train_dataset, test_dataset, f"fold{i+1}")
+        pass
+    else:
+        print("Use handout(train/test) validation")
+        train_dataset = ImageFolder(
+            os.path.join(data_dir, "train"),
+            train_transforms
+        )
+        test_dataset = ImageFolder(
+            os.path.join(data_dir, "test"),
+            test_transforms
+        )
+        fold_train(train_dataset, test_dataset, "handout")
+    pass
 
 pass
 
 
-def fold_train(train_dataset, test_dataset, fold):
+def fold_train(train_dataset, test_dataset, post_name):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     dataloaders = {
         "train": DataLoader(train_dataset,
@@ -85,7 +102,7 @@ def fold_train(train_dataset, test_dataset, fold):
 
     trained_model_ft, acc_loss_history, epoch = trainer.train(num_epochs=input_args.epoch,
                                                               previous_epoch=checkpoint_epoch,
-                                                              save_model_name=f"GoogleNet-classification-fold{fold+1}.pth")
+                                                              save_model_name=f"GoogleNet-classification-{post_name}.pth")
     return trained_model_ft, acc_loss_history, epoch
 
 
